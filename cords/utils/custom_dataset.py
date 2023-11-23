@@ -8,7 +8,7 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import Dataset, random_split
 from torchvision import transforms
 import PIL.Image as Image
-from sklearn.datasets import load_boston
+
 
 ## Custom PyTorch Dataset Class wrapper
 class CustomDataset(Dataset):

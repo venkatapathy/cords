@@ -6,7 +6,22 @@ from scipy.sparse import csr_matrix
 from .dataselectionstrategy import DataSelectionStrategy
 from torch.utils.data.sampler import SubsetRandomSampler
 import math
+from sklearn.metrics.pairwise import cosine_similarity
+import os
+import requests
+import zipfile
+from torch.autograd import Variable
 
+vocab=['-']+[chr(ord('a')+i) for i in range(26)]+[chr(ord('A')+i) for i in range(26)]+[chr(ord('0')+i) for i in range(10)]
+chrToindex={}
+indexTochr={}
+cnt=0
+for c in vocab:
+    chrToindex[c]=cnt
+    indexTochr[cnt]=c
+    cnt+=1
+vocab_size=cnt # uppercase and lowercase English characters and digits(26+26+10=6
+sequence_len=28
 
 class CRAIGStrategy(DataSelectionStrategy):
     """
@@ -44,28 +59,80 @@ class CRAIGStrategy(DataSelectionStrategy):
         The type of loss criterion
     device: str
         The device being utilized - cpu | cuda
-    num_classes: int
-        The number of target classes in the dataset
     linear_layer: bool
         Apply linear transformation to the data
     if_convex: bool
         If convex or not
-    selection_type: str
-        Type of selection:
-         - 'PerClass': PerClass Implementation where the facility location problem is solved for each class seperately for speed ups.
-         - 'Supervised':  Supervised Implementation where the facility location problem is solved using a sparse similarity matrix by assigning the similarity of a point with other points of different class to zero.
     """
 
     def __init__(self, trainloader, valloader, model, loss,
-                 device, num_classes, linear_layer, if_convex,
-                 selection_type, optimizer='lazy'):
+                 device, linear_layer, if_convex,
+                 optimizer='lazy'):
         """
         Constructer method
         """
-        super().__init__(trainloader, valloader, model, num_classes, linear_layer, loss, device)
+        super().__init__(trainloader, valloader, model, linear_layer, loss, device)
         self.if_convex = if_convex
-        self.selection_type = selection_type
+        
         self.optimizer = optimizer
+        
+        self.word_embeddings = self.load_glove_embeddings()
+        
+    def download_and_unzip_glove(self, url, zip_path, extract_dir):
+        """
+        Download and unzip GloVe embeddings.
+
+        Parameters
+        ----------
+        url : str
+            URL to download GloVe embeddings.
+        zip_path : str
+            Path to save the downloaded zip file.
+        extract_dir : str
+            Directory where to extract the contents of the zip file.
+        """
+        if not os.path.exists(extract_dir):
+            os.makedirs(extract_dir)
+            print("Downloading GloVe embeddings...")
+            response = requests.get(url)
+            with open(zip_path, 'wb') as file:
+                file.write(response.content)
+            print("Download complete. Extracting files...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_dir)
+            os.remove(zip_path)
+            print("Extraction complete.")
+        else:
+            print("GloVe embeddings already downloaded and extracted.")
+
+    def load_glove_embeddings(self):
+        """
+        Load GloVe embeddings from a file.
+
+        Parameters
+        ----------
+        file_path : str
+            The path to the GloVe embeddings file.
+
+        Returns
+        -------
+        dict
+            A dictionary where keys are words and values are embeddings.
+        """
+        glove_url = "http://nlp.stanford.edu/data/glove.6B.zip"
+        glove_zip_path = "glove.6B.zip"
+        glove_dir = "/home/venkat/Projects/Zoho/cords/data/glove"
+        self.download_and_unzip_glove(glove_url, glove_zip_path, glove_dir)
+        glove_file_path = os.path.join(glove_dir, "glove.6B.300d.txt")
+
+        embeddings_dict = {}
+        with open(glove_file_path, 'r', encoding='utf-8') as file:
+            for line in file:
+                values = line.split()
+                word = values[0]
+                vector = np.asarray(values[1:], "float32")
+                embeddings_dict[word] = vector
+        return embeddings_dict
 
     def distance(self, x, y, exp=2):
         """
@@ -106,61 +173,78 @@ class CRAIGStrategy(DataSelectionStrategy):
         idxs: list
             The indices
         """
-
+        # Load a subset of data based on the provided indices
         trainset = self.trainloader.sampler.data_source
         subset_loader = torch.utils.data.DataLoader(trainset, batch_size=self.trainloader.batch_size, shuffle=False,
                                                     sampler=SubsetRandomSampler(idxs),
                                                     pin_memory=True)
+          # Load model parameters
         self.model.load_state_dict(model_params)
-        self.N = 0
-        g_is = []
+         # Initialize counters and lists
+        self.N = 0 # Number of samples processed
+        g_is = [] # List to store gradients or features
 
+        # Compute scores based on whether the model is convex or not
         if self.if_convex:
             for batch_idx, (inputs, targets) in enumerate(subset_loader):
+                # For convex models, process inputs as is
                 inputs, targets = inputs, targets
-                if self.selection_type == 'PerBatch':
-                    self.N += 1
-                    g_is.append(inputs.view(inputs.size()[0], -1).mean(dim=0).view(1, -1))
-                else:
-                    self.N += inputs.size()[0]
-                    g_is.append(inputs.view(inputs.size()[0], -1))
+            
+                self.N += inputs.size()[0]
+                # Flatten inputs and append to list
+                g_is.append(inputs.view(inputs.size()[0], -1))
         else:
+            # For non-convex models, process using model's embeddings
             embDim = self.model.get_embedding_dim()
             for batch_idx, (inputs, targets) in enumerate(subset_loader):
-                inputs, targets = inputs.to(self.device), targets.to(self.device, non_blocking=True)
-                if self.selection_type == 'PerBatch':
-                    self.N += 1
-                else:
-                    self.N += inputs.size()[0]
+                inputs = inputs.to(self.device)
+                out_size=Variable(torch.IntTensor([sequence_len] * len(targets)))
+                y_size=Variable(torch.IntTensor([len(l) for l in targets]))
+                conc_label=''.join(targets)          
+                y=[chrToindex[c] for c in conc_label]
+                y_var=Variable(torch.IntTensor(y))
+                #y_var=y_var.to(self.device)
+                
+                self.N += inputs.size()[0]
+                print(inputs.size()[0])
+                if inputs.size()[0]==4:
+                    print('pass')
+                # Get model outputs and calculate loss
                 out, l1 = self.model(inputs, freeze=True, last=True)
-                loss = self.loss(out, targets).sum()
+                loss = self.loss(out,y_var,out_size, y_size).sum()
                 l0_grads = torch.autograd.grad(loss, out)[0]
                 if self.linear_layer:
+                    # If linear layer is used, expand gradients and concatenate
                     l0_expand = torch.repeat_interleave(l0_grads, embDim, dim=1)
                     l1_grads = l0_expand * l1.repeat(1, self.num_classes)
-                    if self.selection_type == 'PerBatch':
-                        g_is.append(torch.cat((l0_grads, l1_grads), dim=1).mean(dim=0).view(1, -1))
-                    else:
-                        g_is.append(torch.cat((l0_grads, l1_grads), dim=1))
+                    g_is.append(torch.cat((l0_grads, l1_grads), dim=1))
                 else:
-                    if self.selection_type == 'PerBatch':
-                        g_is.append(l0_grads.mean(dim=0).view(1, -1))
-                    else:
-                        g_is.append(l0_grads)
+                    # If no linear layer, use the gradients directly
+                    # Flatten the gradients and append to g_is
+                    # Assuming l0_grads has the shape [28, 20, 63]
+                    l0_grads_transposed = l0_grads.transpose(0, 1)  # Transpose to [20, 28, 63]
+                    l0_grads_flattened = l0_grads_transposed.reshape(20, -1)  # Flatten to [20, 28*63]
 
+                    g_is.append(l0_grads_flattened)
+        # Initialize the distance matrix
         self.dist_mat = torch.zeros([self.N, self.N], dtype=torch.float32)
         first_i = True
-        if self.selection_type == 'PerBatch':
-            g_is = torch.cat(g_is, dim=0)
-            self.dist_mat = self.distance(g_is, g_is).cpu()
-        else:
-            for i, g_i in enumerate(g_is, 0):
-                if first_i:
-                    size_b = g_i.size(0)
-                    first_i = False
-                for j, g_j in enumerate(g_is, 0):
-                    self.dist_mat[i * size_b: i * size_b + g_i.size(0),
-                    j * size_b: j * size_b + g_j.size(0)] = self.distance(g_i, g_j).cpu()
+        
+        # Compute pairwise distances between all gradients/features
+        for i, g_i in enumerate(g_is, 0):
+            # Calculate the start and end indices for the i-th batch
+            start_i = sum(g.size(0) for g in g_is[:i])
+            end_i = start_i + g_i.size(0)
+
+            for j, g_j in enumerate(g_is, 0):
+                # Calculate the start and end indices for the j-th batch
+                start_j = sum(g.size(0) for g in g_is[:j])
+                end_j = start_j + g_j.size(0)
+
+                # Update distance matrix with calculated distances
+                self.dist_mat[start_i:end_i, start_j:end_j] = self.distance(g_i, g_j).cpu()
+
+        # Normalize the distance matrix
         self.const = torch.max(self.dist_mat).item()
         self.dist_mat = (self.const - self.dist_mat).numpy()
 
@@ -179,41 +263,33 @@ class CRAIGStrategy(DataSelectionStrategy):
             Gradient values of the input indices
         """
 
-        if self.selection_type in ['PerClass', 'PerBatch']:
-            gamma = [0 for i in range(len(idxs))]
-            best = self.dist_mat[idxs]  # .to(self.device)
-            rep = np.argmax(best, axis=0)
-            for i in rep:
-                gamma[i] += 1
-        elif self.selection_type == 'Supervised':
-            gamma = [0 for i in range(len(idxs))]
-            best = self.dist_mat[idxs]  # .to(self.device)
-            rep = np.argmax(best, axis=0)
-            for i in range(rep.shape[1]):
-                gamma[rep[0, i]] += 1
+        gamma = [0 for i in range(len(idxs))]
+        best = self.dist_mat[idxs]  # .to(self.device)
+        rep = np.argmax(best, axis=0)
+        for i in range(rep.shape[1]):
+            gamma[rep[0, i]] += 1
         return gamma
 
     def get_similarity_kernel(self):
         """
-        Obtain the similarity kernel.
+        Obtain the similarity kernel for OCR targets.
 
         Returns
         ----------
         kernel: ndarray
-            Array of kernel values
+            Array of kernel values based on word similarity.
         """
+        embeddings = []
         for batch_idx, (inputs, targets) in enumerate(self.trainloader):
-            if batch_idx == 0:
-                labels = targets
-            else:
-                tmp_target_i = targets
-                labels = torch.cat((labels, tmp_target_i), dim=0)
-        kernel = np.zeros((labels.shape[0], labels.shape[0]))
-        for target in np.unique(labels):
-            x = np.where(labels == target)[0]
-            # prod = np.transpose([np.tile(x, len(x)), np.repeat(x, len(x))])
-            for i in x:
-                kernel[i, x] = 1
+            # Here, 'targets' are expected to be words or sequences of characters.
+            # Convert these words into embeddings. You can use a pre-trained embedding model like Word2Vec, GloVe, etc.
+            word_embeddings = self.embed_words(targets)  # This is a placeholder function.
+            embeddings.extend(word_embeddings)
+        
+        embeddings = np.array(embeddings)
+        # Using cosine similarity to calculate the similarity between word embeddings.
+        kernel = cosine_similarity(embeddings)
+        
         return kernel
 
     def select(self, budget, model_params):
@@ -239,69 +315,30 @@ class CRAIGStrategy(DataSelectionStrategy):
         gammas: list
             List containing gradients of datapoints present in greedySet
         """
-
-        for batch_idx, (inputs, targets) in enumerate(self.trainloader):
-            if batch_idx == 0:
-                labels = targets
-            else:
-                tmp_target_i = targets
-                labels = torch.cat((labels, tmp_target_i), dim=0)
+        # Load all labels from the training data
+        # for batch_idx, (inputs, targets) in enumerate(self.trainloader):
+        #     if batch_idx == 0:
+        #         labels = targets
+        #     else:
+        #         tmp_target_i = targets
+        #         labels = torch.cat((labels, tmp_target_i), dim=0)
         # per_class_bud = int(budget / self.num_classes)
+        # Initialize lists for storing selected indices and their corresponding scores
         total_greedy_list = []
         gammas = []
-        if self.selection_type == 'PerClass':
-            for i in range(self.num_classes):
-                idxs = torch.where(labels == i)[0]
-                self.compute_score(model_params, idxs)
-                fl = apricot.functions.facilityLocation.FacilityLocationSelection(random_state=0, metric='precomputed',
-                                                                                  n_samples=math.ceil(
-                                                                                      budget * len(idxs) / self.N_trn),
-                                                                                  optimizer=self.optimizer)
-                sim_sub = fl.fit_transform(self.dist_mat)
-                greedyList = list(np.argmax(sim_sub, axis=1))
-                gamma = self.compute_gamma(greedyList)
-                total_greedy_list.extend(idxs[greedyList])
-                gammas.extend(gamma)
-            rand_indices = np.random.permutation(len(total_greedy_list))
-            total_greedy_list = list(np.array(total_greedy_list)[rand_indices])
-            gammas = list(np.array(gammas)[rand_indices])
-        elif self.selection_type == 'Supervised':
-            for i in range(self.num_classes):
-                if i == 0:
-                    idxs = torch.where(labels == i)[0]
-                    N = len(idxs)
-                    self.compute_score(model_params, idxs)
-                    row = idxs.repeat_interleave(N)
-                    col = idxs.repeat(N)
-                    data = self.dist_mat.flatten()
-                else:
-                    idxs = torch.where(labels == i)[0]
-                    N = len(idxs)
-                    self.compute_score(model_params, idxs)
-                    row = torch.cat((row, idxs.repeat_interleave(N)), dim=0)
-                    col = torch.cat((col, idxs.repeat(N)), dim=0)
-                    data = np.concatenate([data, self.dist_mat.flatten()], axis=0)
-            sparse_simmat = csr_matrix((data, (row.numpy(), col.numpy())), shape=(self.N_trn, self.N_trn))
-            self.dist_mat = sparse_simmat
-            fl = apricot.functions.facilityLocation.FacilityLocationSelection(random_state=0, metric='precomputed',
-                                                                              n_samples=budget, optimizer=self.optimizer)
-            sim_sub = fl.fit_transform(sparse_simmat)
-            total_greedy_list = list(np.array(np.argmax(sim_sub, axis=1)).reshape(-1))
-            gammas = self.compute_gamma(total_greedy_list)
-        elif self.selection_type == 'PerBatch':
-            idxs = torch.arange(self.N_trn)
-            N = len(idxs)
-            self.compute_score(model_params, idxs)
-            fl = apricot.functions.facilityLocation.FacilityLocationSelection(random_state=0, metric='precomputed',
-                                                                              n_samples=math.ceil(
-                                                                                  budget / self.trainloader.batch_size),
-                                                                              optimizer=self.optimizer)
-            sim_sub = fl.fit_transform(self.dist_mat)
-            temp_list = list(np.array(np.argmax(sim_sub, axis=1)).reshape(-1))
-            gammas_temp = self.compute_gamma(temp_list)
-            batch_wise_indices = list(self.trainloader.batch_sampler)
-            for i in range(len(temp_list)):
-                tmp = batch_wise_indices[temp_list[i]]
-                total_greedy_list.extend(tmp)
-                gammas.extend(list(gammas_temp[i] * np.ones(len(tmp))))
+        idxs = torch.arange(0, self.N_trn).long()
+        N = len(idxs)
+        self.compute_score(model_params, idxs)
+        row = idxs.repeat_interleave(N)
+        col = idxs.repeat(N)
+        data = self.dist_mat.flatten()
+        sparse_simmat = csr_matrix((data, (row.numpy(), col.numpy())), shape=(self.N_trn, self.N_trn))
+        self.dist_mat = sparse_simmat
+        fl = apricot.functions.facilityLocation.FacilityLocationSelection(random_state=0, metric='precomputed',
+                                                                            n_samples=budget,
+                                                                            optimizer=self.optimizer)
+        sim_sub = fl.fit_transform(sparse_simmat)
+        total_greedy_list = list(np.array(np.argmax(sim_sub, axis=1)).reshape(-1))
+        gammas = self.compute_gamma(total_greedy_list)
+        # Return the final list of selected indices and their scores
         return total_greedy_list, gammas
