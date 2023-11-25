@@ -206,9 +206,7 @@ class CRAIGStrategy(DataSelectionStrategy):
                 #y_var=y_var.to(self.device)
                 
                 self.N += inputs.size()[0]
-                print(inputs.size()[0])
-                if inputs.size()[0]==4:
-                    print('pass')
+               
                 # Get model outputs and calculate loss
                 out, l1 = self.model(inputs, freeze=True, last=True)
                 loss = self.loss(out,y_var,out_size, y_size).sum()

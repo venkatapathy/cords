@@ -31,7 +31,7 @@ config = dict(setting="supervisedlearning",
               scheduler=dict(type="cosine_annealing",
                              T_max=300),
 
-              dss_strategy=dict(type="CRAIG",
+              dss_strategy=dict(type="full",
                                 fraction=0.1,
                                 select_every=20),
 
@@ -39,7 +39,7 @@ config = dict(setting="supervisedlearning",
                               device=torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
                               print_every=10,
                               results_dir='results/',
-                              print_args=["val_loss", "val_acc", "tst_loss", "tst_acc", "time"],
+                              print_args=["val_loss", "tst_loss", "time"],
                               return_args=[]
                               )
               )

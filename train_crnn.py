@@ -14,6 +14,9 @@ from cords.utils.config_utils import load_config_data
 import os.path as osp
 from cords.selectionstrategies.supervisedlearning import OMPGradMatchStrategy, GLISTERStrategy, RandomStrategy, CRAIGStrategy
 from ray import tune
+from cords.utils.ocrmetric import CharMatch
+#iimport List class
+from typing import List
 
 vocab=['-']+[chr(ord('a')+i) for i in range(26)]+[chr(ord('A')+i) for i in range(26)]+[chr(ord('0')+i) for i in range(10)]
 chrToindex={}
@@ -178,10 +181,6 @@ class TrainCRNN:
             setf_model = OMPGradMatchStrategy(trainloader, valloader, model1, criterion_nored,
                                               self.configdata['optimizer']['lr'], self.configdata['train_args']['device'], num_cls, True, 'PerClassPerGradient',
                                               valid=self.configdata['dss_strategy']['valid'], lam=self.configdata['dss_strategy']['lam'], eps=1e-100)
-        elif self.configdata['dss_strategy']['type'] == 'GradMatchPB':
-            setf_model = OMPGradMatchStrategy(trainloader, valloader, model1, criterion_nored,
-                                              self.configdata['optimizer']['lr'], self.configdata['train_args']['device'], num_cls, True, 'PerBatch',
-                                              valid=self.configdata['dss_strategy']['valid'], lam=self.configdata['dss_strategy']['lam'], eps=1e-100)
         elif self.configdata['dss_strategy']['type'] == 'GLISTER':
             # GLISTER Selection strategy
             setf_model = GLISTERStrategy(trainloader, valloader, model1, criterion_nored,
@@ -193,35 +192,6 @@ class TrainCRNN:
             setf_model = CRAIGStrategy(trainloader, valloader, model1, criterion_nored,
                                        self.configdata['train_args']['device'], False, False)
 
-        elif self.configdata['dss_strategy']['type'] == 'CRAIGPB':
-            # CRAIG Selection strategy
-            setf_model = CRAIGStrategy(trainloader, valloader, model1, criterion_nored,
-                                       self.configdata['train_args']['device'], num_cls, False, False, 'PerBatch')
-
-        elif self.configdata['dss_strategy']['type'] == 'CRAIG-Warm':
-            # CRAIG Selection strategy
-            setf_model = CRAIGStrategy(trainloader, valloader, model1, criterion_nored,
-                                       self.configdata['train_args']['device'], num_cls, False, False, 'PerClass')
-            # Random-Online Selection strategy
-            #rand_setf_model = RandomStrategy(trainloader, online=True)
-            if 'kappa' in self.configdata['dss_strategy']:
-                kappa_epochs = int(self.configdata['dss_strategy']['kappa'] * self.configdata['train_args']['num_epochs'])
-                full_epochs = round(kappa_epochs * self.configdata['dss_strategy']['fraction'])
-            else:
-                raise KeyError("Specify a kappa value in the config file")
-
-        elif self.configdata['dss_strategy']['type'] == 'CRAIGPB-Warm':
-            # CRAIG Selection strategy
-            setf_model = CRAIGStrategy(trainloader, valloader, model1, criterion_nored,
-                                       self.configdata['train_args']['device'], num_cls, False, False, 'PerBatch')
-            # Random-Online Selection strategy
-            #rand_setf_model = RandomStrategy(trainloader, online=True)
-            if 'kappa' in self.configdata['dss_strategy']:
-                kappa_epochs = int(self.configdata['dss_strategy']['kappa'] * self.configdata['train_args']['num_epochs'])
-                full_epochs = round(kappa_epochs * self.configdata['dss_strategy']['fraction'])
-            else:
-                raise KeyError("Specify a kappa value in the config file")
-
         elif self.configdata['dss_strategy']['type'] == 'Random':
             # Random Selection strategy
             setf_model = RandomStrategy(trainloader, online=False)
@@ -229,54 +199,6 @@ class TrainCRNN:
         elif self.configdata['dss_strategy']['type'] == 'Random-Online':
             # Random-Online Selection strategy
             setf_model = RandomStrategy(trainloader, online=True)
-
-        elif self.configdata['dss_strategy']['type'] == 'GLISTER-Warm':
-            # GLISTER Selection strategy
-            setf_model = GLISTERStrategy(trainloader, valloader, model1, criterion_nored,
-                                         self.configdata['optimizer']['lr'], self.configdata['train_args']['device'],
-                                         num_cls, False, 'Stochastic', r=int(bud))
-            # Random-Online Selection strategy
-            #rand_setf_model = RandomStrategy(trainloader, online=True)
-            if 'kappa' in self.configdata['dss_strategy']:
-                kappa_epochs = int(self.configdata['dss_strategy']['kappa'] * self.configdata['train_args']['num_epochs'])
-                full_epochs = round(kappa_epochs * self.configdata['dss_strategy']['fraction'])
-            else:
-                raise KeyError("Specify a kappa value in the config file")
-
-        elif self.configdata['dss_strategy']['type'] == 'GradMatch-Warm':
-            # OMPGradMatch Selection strategy
-            setf_model = OMPGradMatchStrategy(trainloader, valloader, model1, criterion_nored,
-                                              self.configdata['optimizer']['lr'], self.configdata['train_args']['device'],
-                                              num_cls, True, 'PerClassPerGradient', valid=self.configdata['dss_strategy']['valid'],
-                                              lam=self.configdata['dss_strategy']['lam'], eps=1e-100)
-            # Random-Online Selection strategy
-            #rand_setf_model = RandomStrategy(trainloader, online=True)
-            if 'kappa' in self.configdata['dss_strategy']:
-                kappa_epochs = int(self.configdata['dss_strategy']['kappa'] * self.configdata['train_args']['num_epochs'])
-                full_epochs = round(kappa_epochs * self.configdata['dss_strategy']['fraction'])
-            else:
-                raise KeyError("Specify a kappa value in the config file")
-
-        elif self.configdata['dss_strategy']['type'] == 'GradMatchPB-Warm':
-            # OMPGradMatch Selection strategy
-            setf_model = OMPGradMatchStrategy(trainloader, valloader, model1, criterion_nored,
-                                              self.configdata['optimizer']['lr'], self.configdata['train_args']['device'],
-                                              num_cls, True, 'PerBatch', valid=self.configdata['dss_strategy']['valid'],
-                                              lam=self.configdata['dss_strategy']['lam'], eps=1e-100)
-            # Random-Online Selection strategy
-            #rand_setf_model = RandomStrategy(trainloader, online=True)
-            if 'kappa' in self.configdata['dss_strategy']:
-                kappa_epochs = int(self.configdata['dss_strategy']['kappa'] * self.configdata['train_args']['num_epochs'])
-                full_epochs = round(kappa_epochs * self.configdata['dss_strategy']['fraction'])
-            else:
-                raise KeyError("Specify a kappa value in the config file")
-
-        elif self.configdata['dss_strategy']['type'] == 'Random-Warm':
-            if 'kappa' in self.configdata['dss_strategy']:
-                kappa_epochs = int(self.configdata['dss_strategy']['kappa'] * self.configdata['train_args']['num_epochs'])
-                full_epochs = round(kappa_epochs * self.configdata['dss_strategy']['fraction'])
-            else:
-                raise KeyError("Specify a kappa value in the config file")
 
         print("=======================================", file=logfile)
             
@@ -322,7 +244,7 @@ class TrainCRNN:
             elif self.configdata['dss_strategy']['type'] in ['Random']:
                 pass
 
-            elif (self.configdata['dss_strategy']['type'] in ['GLISTER', 'GradMatch', 'GradMatchPB', 'CRAIG', 'CRAIGPB']) and (
+            elif (self.configdata['dss_strategy']['type'] in ['GLISTER', 'GradMatch', 'CRAIG']) and (
                     ((i + 1) % self.configdata['dss_strategy']['select_every']) == 0):
                 start_time = time.time()
                 cached_state_dict = copy.deepcopy(model.state_dict())
@@ -330,21 +252,8 @@ class TrainCRNN:
                 subset_idxs, gammas = setf_model.select(int(bud), clone_dict)
                 model.load_state_dict(cached_state_dict)
                 idxs = subset_idxs
-                if self.configdata['dss_strategy']['type'] in ['GradMatch', 'GradMatchPB', 'CRAIG', 'CRAIGPB']:
+                if self.configdata['dss_strategy']['type'] in ['GradMatch', 'CRAIG']:
                     gammas = torch.from_numpy(np.array(gammas)).to(self.configdata['train_args']['device']).to(torch.float32)
-                subset_selection_time += (time.time() - start_time)
-
-            elif (self.configdata['dss_strategy']['type'] in ['GLISTER-Warm', 'GradMatch-Warm', 'GradMatchPB-Warm', 'CRAIG-Warm',
-                               'CRAIGPB-Warm']):
-                start_time = time.time()
-                if ((i % self.configdata['dss_strategy']['select_every'] == 0) and (i >= kappa_epochs)):
-                    cached_state_dict = copy.deepcopy(model.state_dict())
-                    clone_dict = copy.deepcopy(model.state_dict())
-                    subset_idxs, gammas = setf_model.select(int(bud), clone_dict)
-                    model.load_state_dict(cached_state_dict)
-                    idxs = subset_idxs
-                    if self.configdata['dss_strategy']['type'] in ['GradMatch-Warm', 'GradMatchPB-Warm', 'CRAIG-Warm', 'CRAIGPB-Warm']:
-                        gammas = torch.from_numpy(np.array(gammas)).to(self.configdata['train_args']['device']).to(torch.float32)
                 subset_selection_time += (time.time() - start_time)
 
             elif self.configdata['dss_strategy']['type'] in ['Random-Warm']:
@@ -354,12 +263,16 @@ class TrainCRNN:
             data_sub = Subset(trainset, idxs)
             subset_trnloader = torch.utils.data.DataLoader(data_sub, batch_size=trn_batch_size, shuffle=False,
                                                            pin_memory=True)
-
+            results_words=[]
+            labels=[]
             model.train()
             batch_wise_indices = list(subset_trnloader.batch_sampler)
-            if self.configdata['dss_strategy']['type'] in ['CRAIG', 'CRAIGPB', 'GradMatch', 'GradMatchPB']:
+            if self.configdata['dss_strategy']['type'] in ['CRAIG', 'GradMatch']:
                 start_time = time.time()
                 for batch_idx, (inputs, targets) in enumerate(subset_trnloader):
+                    #concatenate all the targets to labels
+                    labels+=targets
+                    
                     loss=0.0
                     inputs = inputs.to(self.configdata['train_args']['device'])
                     out_size=Variable(torch.IntTensor([sequence_len] * len(targets)))
@@ -379,44 +292,26 @@ class TrainCRNN:
                     subtrn_loss += loss.item()
                     optimizer.step()
                     #TODO: implement a scoring mechanism based on CER(?) 
-                    #_, predicted = outputs.max(1)
-
-                    subtrn_total += 0
-                    subtrn_correct += 0
+                    results_np=outputs.cpu().detach().numpy()
+                    #results is  sequence_len x batchsize x vocabllength. Transpose it to batchsize x sequence_len x vocablength
+                    results_np=np.transpose(results_np,(1,0,2))
+                    
+                    for result_np in results_np:
+                        result_word=''
+                        for i_temp in range(sequence_len):
+                            ch=np.argmax(result_np[i_temp,:])
+                            result_word+=indexTochr[ch]
+                           
+                        results_words.append(result_word)
+                    
+                char_match = CharMatch()
+                #cer is character error rate
+                cer=char_match.compareLists(labels,results_words)
+                #crr is character recognition rate
+                crr=1-cer
                 train_time = time.time() - start_time
 
-            elif self.configdata['dss_strategy']['type'] in ['CRAIGPB-Warm', 'CRAIG-Warm', 'GradMatch-Warm', 'GradMatchPB-Warm']:
-                start_time = time.time()
-                if i < full_epochs:
-                    for batch_idx, (inputs, targets) in enumerate(trainloader):
-                        inputs, targets = inputs.to(self.configdata['train_args']['device']), targets.to(self.configdata['train_args']['device'],
-                                                                                                       non_blocking=True)  # targets can have non_blocking=True.
-                        optimizer.zero_grad()
-                        outputs = model(inputs)
-                        loss = criterion(outputs, targets)
-                        loss.backward()
-                        subtrn_loss += loss.item()
-                        optimizer.step()
-                        _, predicted = outputs.max(1)
-                        subtrn_total += targets.size(0)
-                        subtrn_correct += predicted.eq(targets).sum().item()
-
-                elif i >= kappa_epochs:
-                    for batch_idx, (inputs, targets) in enumerate(subset_trnloader):
-                        inputs, targets = inputs.to(self.configdata['train_args']['device']), targets.to(self.configdata['train_args']['device'],
-                                                                                                       non_blocking=True)  # targets can have non_blocking=True.
-                        optimizer.zero_grad()
-                        outputs = model(inputs)
-                        losses = criterion_nored(outputs, targets)
-                        loss = torch.dot(losses, gammas[batch_wise_indices[batch_idx]]) / (
-                            gammas[batch_wise_indices[batch_idx]].sum())
-                        loss.backward()
-                        subtrn_loss += loss.item()
-                        optimizer.step()
-                        _, predicted = outputs.max(1)
-                        subtrn_total += targets.size(0)
-                        subtrn_correct += predicted.eq(targets).sum().item()
-                train_time = time.time() - start_time
+            
 
             elif self.configdata['dss_strategy']['type'] in ['GLISTER', 'Random', 'Random-Online']:
                 start_time = time.time()
@@ -430,43 +325,14 @@ class TrainCRNN:
                     subtrn_loss += loss.item()
                     optimizer.step()
                     _, predicted = outputs.max(1)
-                    subtrn_total += targets.size(0)
-                    subtrn_correct += predicted.eq(targets).sum().item()
+                    
                 train_time = time.time() - start_time
 
-            elif self.configdata['dss_strategy']['type'] in ['GLISTER-Warm', 'Random-Warm']:
-                start_time = time.time()
-                if i < full_epochs:
-                    for batch_idx, (inputs, targets) in enumerate(trainloader):
-                        inputs, targets = inputs.to(self.configdata['train_args']['device']), targets.to(self.configdata['train_args']['device'],
-                                                                                                       non_blocking=True)  # targets can have non_blocking=True.
-                        optimizer.zero_grad()
-                        outputs = model(inputs)
-                        loss = criterion(outputs, targets)
-                        loss.backward()
-                        subtrn_loss += loss.item()
-                        optimizer.step()
-                        _, predicted = outputs.max(1)
-                        subtrn_total += targets.size(0)
-                        subtrn_correct += predicted.eq(targets).sum().item()
-                elif i >= kappa_epochs:
-                    for batch_idx, (inputs, targets) in enumerate(subset_trnloader):
-                        inputs, targets = inputs.to(self.configdata['train_args']['device']), targets.to(self.configdata['train_args']['device'],
-                                                                                                       non_blocking=True)  # targets can have non_blocking=True.
-                        optimizer.zero_grad()
-                        outputs = model(inputs)
-                        loss = criterion(outputs, targets)
-                        loss.backward()
-                        subtrn_loss += loss.item()
-                        optimizer.step()
-                        _, predicted = outputs.max(1)
-                        subtrn_total += targets.size(0)
-                        subtrn_correct += predicted.eq(targets).sum().item()
-                train_time = time.time() - start_time
-
+            
             elif self.configdata['dss_strategy']['type'] in ['Full']:
                 start_time = time.time()
                 for batch_idx, (inputs, targets) in enumerate(trainloader):
+                    labels+=targets
                     inputs, targets = inputs.to(self.configdata['train_args']['device']), targets.to(self.configdata['train_args']['device'],
                                                                                                    non_blocking=True)  # targets can have non_blocking=True.
                     optimizer.zero_grad()
@@ -475,9 +341,23 @@ class TrainCRNN:
                     loss.backward()
                     subtrn_loss += loss.item()
                     optimizer.step()
-                    _, predicted = outputs.max(1)
-                    subtrn_total += targets.size(0)
-                    subtrn_correct += predicted.eq(targets).sum().item()
+                    #TODO: implement a scoring mechanism based on CER(?) 
+                    results_np=outputs.cpu().detach().numpy()
+                    #results is  sequence_len x batchsize x vocabllength. Transpose it to batchsize x sequence_len x vocablength
+                    results_np=np.transpose(results_np,(1,0,2))
+                    
+                    for result_np in results_np:
+                        result_word=''
+                        for i_temp in range(sequence_len):
+                            ch=np.argmax(result_np[i_temp,:])
+                            result_word+=indexTochr[ch]
+                           
+                        results_words.append(result_word)
+                char_match = CharMatch()
+                #cer is character error rate
+                cer=char_match.compareLists(labels,results_words)
+                #crr is character recognition rate
+                subtrn_crr=1-cer
                 train_time = time.time() - start_time
             scheduler.step()
             timing.append(train_time + subset_selection_time)
@@ -497,9 +377,13 @@ class TrainCRNN:
                 model.eval()
 
                 if (("trn_loss" in print_args) or ("trn_acc" in print_args)):
+                    results_words=[]
+                    labels=[]
                     with torch.no_grad():
+                        
                         for batch_idx, (inputs, targets) in enumerate(trainloader):
                             # print(batch_idx)
+                            labels+=targets
                             inputs = inputs.to(self.configdata['train_args']['device'])
                             out_size=Variable(torch.IntTensor([sequence_len] * len(targets)))
                             #out_size=out_size.to(self.configdata['train_args']['device'])
@@ -514,11 +398,37 @@ class TrainCRNN:
                             losses = criterion_nored(outputs,y_var,out_size, y_size)
                             trn_loss += loss.item()
                             trn_losses.append(trn_loss)
+                            #TODO: implement a scoring mechanism based on CER(?) 
+                            results_np=outputs.cpu().detach().numpy()
+                            #results is  sequence_len x batchsize x vocabllength. Transpose it to batchsize x sequence_len x vocablength
+                            results_np=np.transpose(results_np,(1,0,2))
+                            
+                            for result_np in results_np:
+                                result_word=''
+                                for i_temp in range(sequence_len):
+                                    ch=np.argmax(result_np[i_temp,:])
+                                    result_word+=indexTochr[ch]
+                                
+                                results_words.append(result_word)
+
+                    if "trn_acc" in print_args:
+                        char_match = CharMatch()
+                        #cer is character error rate
+                        cer=char_match.compareLists(labels,results_words)
+                        #crr is character recognition rate
+                        trn_crr=1-cer
+                        trn_acc.append(trn_crr)
+                            
+                            
+                            
                             
 
                 if (("val_loss" in print_args) or ("val_acc" in print_args)):
+                    results_words=[]
+                    labels=[]
                     with torch.no_grad():
                         for batch_idx, (inputs, targets) in enumerate(valloader):
+                            labels+=targets
                             # print(batch_idx)
                             inputs = inputs.to(self.configdata['train_args']['device'])
                             out_size=Variable(torch.IntTensor([sequence_len] * len(targets)))
@@ -534,10 +444,32 @@ class TrainCRNN:
                             losses = criterion_nored(outputs,y_var,out_size, y_size)
                             val_loss += loss.item()
                             val_losses.append(val_loss)
+                            #TODO: implement a scoring mechanism based on CER(?) 
+                            results_np=outputs.cpu().detach().numpy()
+                            #results is  sequence_len x batchsize x vocabllength. Transpose it to batchsize x sequence_len x vocablength
+                            results_np=np.transpose(results_np,(1,0,2))
+                            
+                            for result_np in results_np:
+                                result_word=''
+                                for i_temp in range(sequence_len):
+                                    ch=np.argmax(result_np[i_temp,:])
+                                    result_word+=indexTochr[ch]
+                                
+                                results_words.append(result_word)
+                    if "val_acc" in print_args:
+                        char_match = CharMatch()
+                        #cer is character error rate
+                        cer=char_match.compareLists(labels,results_words)
+                        #crr is character recognition rate
+                        trn_crr=1-cer
+                        val_acc.append(trn_crr)
                             
                 if (("tst_loss" in print_args) or ("tst_acc" in print_args)):
+                    results_words=[]
+                    labels=[]
                     with torch.no_grad():
                         for batch_idx, (inputs, targets) in enumerate(testloader):
+                            labels+=targets
                             # print(batch_idx)
                             inputs = inputs.to(self.configdata['train_args']['device'])
                             out_size=Variable(torch.IntTensor([sequence_len] * len(targets)))
@@ -553,9 +485,31 @@ class TrainCRNN:
                             losses = criterion_nored(outputs,y_var,out_size, y_size)
                             tst_loss += loss.item()
                             tst_losses.append(tst_loss)
+                            #TODO: implement a scoring mechanism based on CER(?) 
+                            results_np=outputs.cpu().detach().numpy()
+                            #results is  sequence_len x batchsize x vocabllength. Transpose it to batchsize x sequence_len x vocablength
+                            results_np=np.transpose(results_np,(1,0,2))
+                            
+                            for result_np in results_np:
+                                result_word=''
+                                for i_temp in range(sequence_len):
+                                    ch=np.argmax(result_np[i_temp,:])
+                                    result_word+=indexTochr[ch]
+                                
+                                results_words.append(result_word)
+                    if "tst_acc" in print_args:
+                        char_match = CharMatch()
+                        #cer is character error rate
+                        cer=char_match.compareLists(labels,results_words)
+                        #crr is character recognition rate
+                        trn_crr=1-cer
+                        trn_acc.append(trn_crr)
                            
                 if "subtrn_losses" in print_args:
                     subtrn_losses.append(subtrn_loss)
+                
+                if "subtrn_acc" in print_args:
+                    subtrn_acc.append(subtrn_crr)
 
                 print_str = "Epoch: " + str(i+1)
 
@@ -564,22 +518,26 @@ class TrainCRNN:
                     if arg == "val_loss":
                         print_str += " , " + "Validation Loss: " + str(val_losses[-1])
 
-                   
+                    if arg == "val_acc":
+                        print_str += " , " + "Validation Accuracy: " + str(val_acc[-1])
 
                     if arg == "tst_loss":
                         print_str += " , " + "Test Loss: " + str(tst_losses[-1])
 
-                   
+                    if arg == "tst_acc":
+                        print_str += " , " + "Test Accuracy: " + str(tst_acc[-1])
 
                     if arg == "trn_loss":
                         print_str += " , " + "Training Loss: " + str(trn_losses[-1])
 
-                  
+                    if arg == "trn_acc":
+                        print_str += " , " + "Training Accuracy: " + str(trn_acc[-1])
 
                     if arg == "subtrn_loss":
                         print_str += " , " + "Subset Loss: " + str(subtrn_losses[-1])
 
-                   
+                    if arg == "subtrn_acc":
+                        print_str += " , " + "Subset Accuracy: " + str(subtrn_acc[-1])
 
                     if arg == "time":
                         print_str += " , " + "Timing: " + str(timing[-1])
@@ -631,13 +589,13 @@ class TrainCRNN:
         print("Final SubsetTrn:", subtrn_loss)
         if "val_loss" in print_args:
             if "val_acc" in print_args:
-                print("Validation Loss and Accuracy: ", val_loss, val_acc[-1])
+                print("Validation Loss and Accuracy: ", val_losses[-1], val_acc[-1])
             else:
                 print("Validation Loss: ", val_loss)
 
         if "tst_loss" in print_args:
             if "tst_acc" in print_args:
-                print("Test Data Loss and Accuracy: ", tst_loss, tst_acc[-1])
+                print("Test Data Loss and Accuracy: ", tst_losses[-1], tst_acc[-1])
             else:
                 print("Test Data Loss: ", tst_loss)
         print('-----------------------------------')
