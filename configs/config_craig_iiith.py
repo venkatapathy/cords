@@ -25,7 +25,7 @@ config = dict(setting="supervisedlearning",
 
               optimizer=dict(type="adam",
                              
-                             lr=0.001,
+                             lr=(4e-3)*(0.8**0),
                              ),
 
               scheduler=dict(type="cosine_annealing",
@@ -35,11 +35,11 @@ config = dict(setting="supervisedlearning",
                                 fraction=0.1,
                                 select_every=20),
 
-              train_args=dict(num_epochs=300,
+              train_args=dict(num_epochs=500,
                               device=torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
                               print_every=10,
-                              results_dir='results/',
-                              print_args=["val_loss", "val_acc", "tst_loss", "tst_acc", "time"],
+                              results_dir='results/craig/',
+                              print_args=["subtrn_losses","subtrn_acc","trn_loss","trn_acc","val_loss", "val_acc", "tst_loss", "tst_acc", "time"],
                               return_args=[]
                               )
               )

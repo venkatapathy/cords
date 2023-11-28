@@ -25,21 +25,21 @@ config = dict(setting="supervisedlearning",
 
               optimizer=dict(type="adam",
                              
-                             lr=0.001,
+                             lr=(4e-3)*(0.8**0),
                              ),
 
               scheduler=dict(type="cosine_annealing",
                              T_max=300),
 
-              dss_strategy=dict(type="full",
-                                fraction=0.1,
+              dss_strategy=dict(type="Full",
+                                fraction=1.0,
                                 select_every=20),
 
-              train_args=dict(num_epochs=300,
+              train_args=dict(num_epochs=500,
                               device=torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
-                              print_every=10,
-                              results_dir='results/',
-                              print_args=["val_loss", "tst_loss", "time"],
+                              print_every=1,
+                              results_dir='results/full/',
+                              print_args=["val_loss", "val_acc", "tst_loss", "tst_acc", "time"],
                               return_args=[]
                               )
               )

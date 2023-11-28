@@ -21,7 +21,10 @@ class CharMatch:
             gt: ground-truth character sequence
             pred: predicted character sequence
         """
-        self.substitutions, self.insertions, self.deletions = self.calculate_errors(gt, pred)
+        subs, ins, dels = self.calculate_errors(gt, pred)
+        self.substitutions += subs
+        self.insertions += ins
+        self.deletions += dels
         self.total_chars += len(gt)
 
     def calculate_errors(self, gt: str, pred: str) -> tuple:
@@ -123,6 +126,8 @@ if __name__ == '__main__':
         cer = char_match.summary()
 
         print(f"Character Error Rate (CER): {cer * 100:.2f}%")
+        #character recognition rate
+        
 
     # Example ground truths and predictions
     ground_truths = ["hello world", "good morning", "how are you"]

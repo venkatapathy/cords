@@ -273,7 +273,7 @@ class TrainCRNN:
                     #concatenate all the targets to labels
                     labels+=targets
                     
-                    loss=0.0
+                    
                     inputs = inputs.to(self.configdata['train_args']['device'])
                     out_size=Variable(torch.IntTensor([sequence_len] * len(targets)))
                     #out_size=out_size.to(self.configdata['train_args']['device'])
@@ -308,7 +308,7 @@ class TrainCRNN:
                 #cer is character error rate
                 cer=char_match.compareLists(labels,results_words)
                 #crr is character recognition rate
-                crr=1-cer
+                subtrn_crr=1-cer
                 train_time = time.time() - start_time
 
             
@@ -332,12 +332,24 @@ class TrainCRNN:
             elif self.configdata['dss_strategy']['type'] in ['Full']:
                 start_time = time.time()
                 for batch_idx, (inputs, targets) in enumerate(trainloader):
+                    #concatenate all the targets to labels
                     labels+=targets
-                    inputs, targets = inputs.to(self.configdata['train_args']['device']), targets.to(self.configdata['train_args']['device'],
-                                                                                                   non_blocking=True)  # targets can have non_blocking=True.
+                    
+                    
+                    inputs = inputs.to(self.configdata['train_args']['device'])
+                    out_size=Variable(torch.IntTensor([sequence_len] * len(targets)))
+                    #out_size=out_size.to(self.configdata['train_args']['device'])
+                    y_size=Variable(torch.IntTensor([len(l) for l in targets]))
+                    #y_size=y_size.to(self.configdata['train_args']['device'])
+                    conc_label=''.join(targets)          
+                    y=[chrToindex[c] for c in conc_label]
+                    y_var=Variable(torch.IntTensor(y))
+                    #y_var=y_var.to(self.configdata['train_args']['device'])
                     optimizer.zero_grad()
                     outputs = model(inputs)
-                    loss = criterion(outputs, targets)
+                    losses = criterion_nored(outputs,y_var,out_size, y_size)
+                    
+                    loss = torch.dot(losses, gammas[batch_wise_indices[batch_idx]]) / (gammas[batch_wise_indices[batch_idx]].sum())
                     loss.backward()
                     subtrn_loss += loss.item()
                     optimizer.step()
@@ -503,7 +515,7 @@ class TrainCRNN:
                         cer=char_match.compareLists(labels,results_words)
                         #crr is character recognition rate
                         trn_crr=1-cer
-                        trn_acc.append(trn_crr)
+                        tst_acc.append(trn_crr)
                            
                 if "subtrn_losses" in print_args:
                     subtrn_losses.append(subtrn_loss)
@@ -533,7 +545,7 @@ class TrainCRNN:
                     if arg == "trn_acc":
                         print_str += " , " + "Training Accuracy: " + str(trn_acc[-1])
 
-                    if arg == "subtrn_loss":
+                    if arg == "subtrn_losses":
                         print_str += " , " + "Subset Loss: " + str(subtrn_losses[-1])
 
                     if arg == "subtrn_acc":
@@ -627,6 +639,9 @@ class TrainCRNN:
 
 #main function
 if __name__ == '__main__':
-    config_file = 'configs/config_craig_iiith.py'
+    # config_file = 'configs/config_craig_iiith.py'
+    # trainer = TrainCRNN(config_file)
+    # trainer.train()
+    config_file = 'configs/config_full_iiith.py'
     trainer = TrainCRNN(config_file)
     trainer.train()
